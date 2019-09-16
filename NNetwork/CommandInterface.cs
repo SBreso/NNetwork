@@ -15,7 +15,8 @@ namespace NNetwork
         LEARN = 2,
         CHECK = 3,
         SAVE = 4,
-        LOAD = 5
+        LOAD = 5,
+        CLEAR = 10
     }
 
     internal class CommandInterface
@@ -28,7 +29,14 @@ namespace NNetwork
             {CommandInterfaceEnum.CHECK,Check },
             {CommandInterfaceEnum.SAVE,Save },
             {CommandInterfaceEnum.LOAD,Load },
+            {CommandInterfaceEnum.CLEAR,Clear },
         };
+
+        private static bool Clear()
+        {
+            System.Console.Clear();
+            return true;
+        }
 
         private static bool ReadValues()
         {
@@ -52,7 +60,12 @@ namespace NNetwork
 
         private static bool Check()
         {
-            _brain.Check();
+            Console.WriteLine("X?");
+            double x = 0,y=0;
+            Double.TryParse(Console.ReadLine(), out x);
+            Console.WriteLine("Y?");
+            Double.TryParse(Console.ReadLine(), out y);
+            _brain.Check(x,y);
             return true;
         }
 
@@ -95,7 +108,7 @@ namespace NNetwork
                 }
                 continueFlag = command();
 
-                System.Console.Clear();
+                //System.Console.Clear();
                 CommandInterface.PrintHelp();
             }
         }
