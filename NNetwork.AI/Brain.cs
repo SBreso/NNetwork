@@ -1,89 +1,126 @@
-﻿using Accord.Controls;
-using Accord.IO;
+﻿using Accord.IO;
 using Accord.Math;
 using Accord.Neuro;
 using Accord.Neuro.Learning;
-using Accord.Statistics;
 using System;
+using System.Collections;
+using System.Collections.Generic;
 using System.Data;
 using System.IO;
 using System.Linq;
+using System.Threading.Tasks;
 
 namespace NNetwork.AI
 {
     public class Brain
     {
-        double[][] _inputs;
-        double[][] _coordenates;
-        double[][] _outputs;
+        private string _name;
+        private string _pathNetwork => $"{Directory.GetCurrentDirectory()}/{this._name}";
+        private double[][] _inputs;
+        private int _inputsCount;
+        private double[][] _outputs;
+        private int[] _neuronsCount;
+        private double _error;
+        private IActivationFunction _activationFunction;
+        private ActivationNetwork _activationNetwork;
+        private ISupervisedLearning _teacher;
 
-        IActivationFunction _function;
-        ISupervisedLearning _teacher;
-        ActivationNetwork _network;
-
-        public void Learn()
+        public Brain(string name)
         {
-            SetValuesToLearn();
-            _function = new BipolarSigmoidFunction();
+            this._name = name;
+        }
 
-            //_network = new ActivationNetwork(_function,
-            //    inputsCount: 4, neuronsCount: new[] { 5, 1 });
-            _network = new ActivationNetwork(_function, 4,6,5, 2);
-            new NguyenWidrow(_network).Randomize();
-            //_teacher = new BackPropagationLearning(_network);
-            _teacher = new ParallelResilientBackpropagationLearning(_network);
-            //var y = _outputs.ToDouble().ToJagged();
-            
-            //double error = double.PositiveInfinity;
-            double error = 1.0;
-            while (error > 1e-2)
+        public Brain(string name
+            , double[][] inputs
+            , double[][] outputs
+            , int[] neuronsCount
+            , IActivationFunction activationFunction
+            , int tol)
+        {
+            this.CheckArgs(name, inputs, outputs, neuronsCount, tol);
+            this._name = name;
+            this._inputs = inputs;
+            this._inputsCount = this._inputs[0].Length;
+            this._outputs = outputs;
+            this._neuronsCount = neuronsCount;
+            this._error = Math.Exp(tol);
+            this._activationFunction = activationFunction;
+        }
+
+        private void CheckArgs(string name, double[][] inputs, double[][] outputs, int[] neuronsCount, int tol)
+        {
+            if (String.IsNullOrEmpty(name)
+                || inputs.GetLength(0) == 0
+                || outputs.GetLength(0) == 0
+                || neuronsCount.Length == 0
+                || ((IEnumerable<int>)neuronsCount).Where(x => x <= 0).Count() > 0
+                || neuronsCount.Last() != outputs[0].Length
+                || tol >= 0)
             {
-                error = _teacher.RunEpoch(_inputs, _outputs);
+                
+                var param = String.IsNullOrEmpty(name) ? "Name is empty"
+                : inputs.GetLength(0) == 0 ? "Inputs is empty"
+                : outputs.GetLength(0) == 0 ? "Outputs is empty"
+                : neuronsCount.Length == 0 ? "NeuronsCount is empty"
+                : ((IEnumerable<int>)neuronsCount).Where(x => x <= 0).Count() > 0 ? "There is a layer without neurons"
+                : neuronsCount.Last() != outputs[0].Length ? "Last layer must have the same neurons that outputs length"
+                : "Tolerance must be less than 0;";
+                throw new ArgumentException(param);
             }
-            //double previous;
-            //int epoch = 1;
-            //do
-            //{
-            //    previous = error;
-
-            //    error = _teacher.RunEpoch(_inputs, y);
-
-            //    Console.WriteLine($"EPOCH {epoch}: {Math.Abs(previous - error)} - {Math.Exp(previous)}");
-
-            //} while (Math.Abs(previous - error) < 1e-10 * previous);
         }
 
-        public void SetValuesToLearn()
+        public async Task Run()
         {
-            DataTable table = new ExcelReader("examples.xls").GetWorksheet("Classification - Circle");
-
-            // Convert the DataTable to input and output vectors
-            _inputs = table.ToJagged<double>("X", "Y", "X2", "Y2");
-            _coordenates = table.ToJagged<double>("X", "Y");
-            _outputs = table.ToJagged<double>("G1","G2");
+            var isLoaded = this.Load();
+            if (!isLoaded)
+            {
+                this.InitBrain();
+                await this.Learn();
+                this.Save();
+            }
         }
 
-        public void Check(double x, double y)
+        private void InitBrain()
         {
-            DataTable table = new ExcelReader("examples.xls").GetWorksheet("Classification - CircleCheck");
+            this._activationNetwork = new ActivationNetwork(this._activationFunction, this._inputsCount, this._neuronsCount);
+            new NguyenWidrow(this._activationNetwork).Randomize();
+            this._teacher = new ParallelResilientBackpropagationLearning(this._activationNetwork);
+        }
+
+        public async Task Learn()
+        {
+            await Task.Run(() => 
+            {
+                double error = 1.0;
+                while (error > this._error)
+                {
+                    error = _teacher.RunEpoch(_inputs, _outputs);
+                }
+            });
+            
+        }
+
+        public double[][] Check(double[][] inputsToCheck)
+        {
+            //DataTable table = new ExcelReader("examples.xls").GetWorksheet("Classification - CircleCheck");
 
             // Convert the DataTable to input and output vectors
-            var inputs = table.ToJagged<double>("X", "Y", "X2", "Y2");
-            var coordenates = table.ToJagged<double>("X", "Y");
+            //var inputs = table.ToJagged<double>("X", "Y", "X2", "Y2");
+            //var coordenates = table.ToJagged<double>("X", "Y");
             //var outputs = table.Columns["G"].ToArray<int>();
 
-            var output = _network.Compute(new double[4] { x, y, Math.Pow(x, 2), Math.Pow(y, 2) });
+            //var output = this._activationNetwork.Compute(new double[4] { x, y, Math.Pow(x, 2), Math.Pow(y, 2) });
 
-            //int[] answers = inputs.Apply(_network.Compute).GetColumn(0).Apply(System.Math.Sign);
+            return inputsToCheck.Apply(this._activationNetwork.Compute);
 
-            Console.WriteLine(String.Format(@"{0,-10} {1,-10} {2,-40} {3,-40}","X","Y","In s2","In s5"));
-            Console.WriteLine(String.Format(@"{0,-10} {1,-10} {2,-40} {3,-40}", x, y, Math.Round(output[0])==1?"TRUE":"FALSE", Math.Round(output[1]) == 1 ? "TRUE" : "FALSE"));
+            //Console.WriteLine(String.Format(@"{0,-10} {1,-10} {2,-40} {3,-40}", "X", "Y", "In s2", "In s5"));
+            //Console.WriteLine(String.Format(@"{0,-10} {1,-10} {2,-40} {3,-40}", x, y, Math.Round(output[0]) == 1 ? "TRUE" : "FALSE", Math.Round(output[1]) == 1 ? "TRUE" : "FALSE"));
             //for (int i = 0; i < inputs.Length; i++)
             //{
             //    double[] answer = _network.Compute(inputs[i]);
             //    int actual;
             //    answer.Max();
-                
+
             //    Console.WriteLine($"[{inputs[i][0]}, {inputs[i][1]}] -> [{Math.Round(answer[0])} - {Math.Round(answer[1])}]");
             //    //Console.WriteLine($"[{inputs[i][0]}, {inputs[i][1]}] -> {answers[i]}");
             //}
@@ -94,17 +131,36 @@ namespace NNetwork.AI
 
         public void Save()
         {
-            var pathTeacher = $"{Directory.GetCurrentDirectory()}/teacher";
-            var pathNetwork = $"{Directory.GetCurrentDirectory()}/network";
-            //_teacher.Save(pathTeacher);
-            _network.Save(pathNetwork);
+            this._activationNetwork.Save(this._pathNetwork);
         }
 
-        public void Load()
+        public bool Load()
         {
-            var pathTeacher = $"{Directory.GetCurrentDirectory()}/teacher";
-            var pathNetwork = $"{Directory.GetCurrentDirectory()}/network";
-            _network = (ActivationNetwork)Network.Load(pathNetwork);
+            try
+            {
+                this._activationNetwork = (ActivationNetwork)Network.Load(this._pathNetwork);
+                return this._activationNetwork != null;
+            }
+            catch (Exception)
+            {
+                return false;
+            }
+            
+        }
+
+        public static bool ActivationNetworkExists(string name)
+        {
+            try
+            {
+                var pathNetwork = $"{Directory.GetCurrentDirectory()}/{name}";
+                var activationNetwork = (ActivationNetwork)Network.Load(pathNetwork);
+                return activationNetwork != null;
+            }
+            catch (Exception)
+            {
+                return false;
+            }
+
         }
     }
 
